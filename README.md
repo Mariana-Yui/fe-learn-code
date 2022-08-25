@@ -1,3 +1,2 @@
-实战参考: 
-1. [字节跳动面试官：请你实现一个大文件上传和断点续传](https://juejin.cn/post/6844904046436843527)
-2. [字节跳动面试官，我也实现了大文件上传和断点续传](https://juejin.cn/post/6844904055819468808)
+git repo:
+[https://github.com/Mariana-Yui/file-upload](https://github.com/Mariana-Yui/file-upload)
