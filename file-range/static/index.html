@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Partial Content Demonstration</title>
+  </head>
+  <body>
+    <h3>Partial Content Demonstration</h3>
+    <hr />
+    <video
+      id="mainPlayer"
+      width="640"
+      height="360"
+      autoplay="autoplay"
+      controls="controls"
+      onloadedmetadata="onLoad()"
+    >
+      <source src="video.mp4" />
+    </video>
+
+    <script type="text/javascript">
+      const mainPlayer = document.getElementById('mainPlayer');
+      function onLoad() {
+        const sec = location.search.slice(1);
+        if (!isNaN(sec)) {
+          mainPlayer.currentTime = sec;
+        }
+      }
+    </script>
+  </body>
+</html>
