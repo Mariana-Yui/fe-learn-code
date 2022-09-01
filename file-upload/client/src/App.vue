@@ -109,6 +109,7 @@ export default defineComponent({
         const index = arr.findIndex((v) => v === item);
         return await request({
           url: BASE_URL,
+          // send()支持传入XMLHttpRequestBodyInit, 可以是 Blob, BufferSource, FormData, URLSearchParams, 或者 USVString 对象。
           data: formData,
           onProgress: createProgressHandler(data.value[index]),
           requestList: requestListRef.value,

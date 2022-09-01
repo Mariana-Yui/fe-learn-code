@@ -41,6 +41,7 @@ function sendResponse(
 function getMimeNameFromExt(ext) {
   let result = mimeNames[ext.toLowerCase()];
   if (result == null) {
+    // https://juejin.cn/post/6979224810681270309
     // https://stackoverflow.com/questions/20508788/do-i-need-content-type-application-octet-stream-for-file-download
     // 当不知道用什么content-type时就用这个, 诶嘿
     result = "application/octet-stream;";

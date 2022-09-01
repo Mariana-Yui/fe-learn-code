@@ -1,0 +1,1 @@
+(()=>{var o={642:o=>{o.exports={add:function(o,r){return o+r},minus:function(o,r){return o-r}}}},r={};function n(t){var e=r[t];if(void 0!==e)return e.exports;var s=r[t]={exports:{}};return o[t](s,s.exports,n),s.exports}(()=>{const{add:o,minus:r}=n(642);console.log(o(10,20)),console.log(r(20,10))})()})();

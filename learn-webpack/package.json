@@ -1,0 +1,16 @@
+{
+  "name": "learn-webpack",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "sass": "^1.54.8",
+    "style-loader": "^3.3.1",
+    "webpack": "^5.74.0"
+  },
+  "devDependencies": {
+    "css-loader": "^6.7.1",
+    "sass-loader": "^13.0.2",
+    "webpack-cli": "^4.10.0"
+  }
+}
