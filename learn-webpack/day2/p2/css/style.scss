@@ -3,6 +3,9 @@ body {
   font-size: 50px;
   font-family: 'Courier New', Courier, monospace;
   .content {
+    user-select: none;
+    transform: all;
     text-align: center;
   }
+  :fullscreen {}
 }
