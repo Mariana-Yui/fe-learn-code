@@ -1,0 +1,18 @@
+body {
+  font-weight: 500;
+  font-size: 50px;
+  font-family: 'Courier New', Courier, monospace;
+  .content {
+    color: #12345678;
+    user-select: none;
+    transform: all;
+    text-align: center;
+    .bg-image {
+      display: inline-block;
+      background: url(../img/grassland.png) no-repeat;
+      background-size: cover;
+    }
+  }
+  :fullscreen {
+  }
+}
