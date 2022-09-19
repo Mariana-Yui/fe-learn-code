@@ -55,6 +55,7 @@ module.exports = {
       patterns: [
         {
           from: 'public',
+          to: 'public',
           globOptions: {
             ignore: ['**/template.html', '**/.DS_Store'],
           },
