@@ -1,6 +1,6 @@
 /** necessary while useBuiltIns: 'entry' */
-import 'core-js/stable';
-import 'regenerator-runtime/runtime';
+// import 'core-js/stable';
+// import 'regenerator-runtime/runtime';
 
 const message = 'Hello world';
 const foo = (name) => {
@@ -10,3 +10,5 @@ const foo = (name) => {
 const promise = new Promise((resolve, reject) => {});
 
 foo(message);
+
+console.log(abc);
