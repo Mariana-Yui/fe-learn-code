@@ -13,11 +13,6 @@ export default {
       msg: 'Hello world Mariana',
     };
   },
-  created() {
-    axios.get('/api/name').then((res) => {
-      console.log(res.data);
-    });
-  },
 };
 </script>
 

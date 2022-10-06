@@ -72,6 +72,18 @@ module.exports = {
     historyApiFallback: {
       rewrites: [{ from: /about|me/, to: '/asset/page/' }],
     },
+    /** 注释查看跨域问题 */
+    proxy: {
+      '/api': {
+        target: "http://localhost:8888",
+        pathRewrite: {
+          '^/api': '',
+        },
+        secure: false,
+        changeOrigin: true,
+      }
+    }
+    /** 注释查看跨域问题 */
   },
   resolve: {
     extensions: ['.js', '.json', '.wasm', '.jsx', '.vue'],
