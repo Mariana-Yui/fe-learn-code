@@ -1,0 +1,41 @@
+
+
+ SMP  ⏱  
+General output time took 0.57 secs
+
+ SMP  ⏱  Plugins
+HtmlWebpackPlugin took 0.079 secs
+CleanWebpackPlugin took 0.012 secs
+MiniCssExtractPlugin took 0.002 secs
+
+ SMP  ⏱  Loaders
+css-loader took 0.058 secs
+  module count = 1
+modules with no loaders took 0.054 secs
+  module count = 10
+html-webpack-plugin took 0.013 secs
+  module count = 1
+style-loader, and 
+css-loader took 0.008 secs
+  module count = 1
+
+
+
+asset main.21fca4.bundle.js 4.08 KiB [emitted] [immutable] [minimized] (name: main)
+asset index.html 228 bytes [emitted]
+runtime modules 698 bytes 4 modules
+orphan modules 1.14 KiB [orphan] 1 module
+modules by path ../../node_modules/ 8.07 KiB
+  modules by path ../../node_modules/style-loader/dist/runtime/*.js 5.75 KiB
+    ../../node_modules/style-loader/dist/runtime/injectStylesIntoStyleTag.js 2.44 KiB [built] [code generated]
+    ../../node_modules/style-loader/dist/runtime/styleDomAPI.js 1.38 KiB [built] [code generated]
+    ../../node_modules/style-loader/dist/runtime/insertBySelector.js 1010 bytes [built] [code generated]
+    ../../node_modules/style-loader/dist/runtime/setAttributesWithoutAttributes.js 300 bytes [built] [code generated]
+    + 2 modules
+  modules by path ../../node_modules/css-loader/dist/runtime/*.js 2.33 KiB
+    ../../node_modules/css-loader/dist/runtime/noSourceMaps.js 64 bytes [built] [code generated]
+    ../../node_modules/css-loader/dist/runtime/api.js 2.26 KiB [built] [code generated]
+modules by path ./ 1.72 KiB
+  ./index.js + 1 modules 1.27 KiB [built] [code generated]
+  ../../node_modules/css-loader/dist/cjs.js!./style.css 456 bytes [built] [code generated]
+webpack 5.74.0 compiled successfully in 573 ms

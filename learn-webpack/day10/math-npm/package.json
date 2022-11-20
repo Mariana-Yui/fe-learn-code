@@ -1,0 +1,7 @@
+{
+  "name": "math-npm",
+  "version": "1.0.0",
+  "main": "./dist/bundle.js",
+  "module": "./dist/bundle.js",
+  "license": "MIT"
+}

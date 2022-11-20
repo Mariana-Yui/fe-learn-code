@@ -1,0 +1,1 @@
+window.app = 123;
