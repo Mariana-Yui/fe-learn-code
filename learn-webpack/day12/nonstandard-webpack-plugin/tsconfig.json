@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "declaration": true,
+    "declarationMap": false,
+    "declarationDir": "./types",
+    "target": "esnext",
+    "module": "esnext",
+  },
+  "include": ["lib/*"]
+}
