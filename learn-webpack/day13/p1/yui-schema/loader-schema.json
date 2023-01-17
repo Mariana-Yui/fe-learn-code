@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "properties": {
+    "firstName": {
+      "type": "string",
+      "description": "请输入你的名"
+    },
+    "lastName": {
+      "type": "string",
+      "description": "请输入你的姓"
+    }
+  },
+  "additionalProperties": false
+}
