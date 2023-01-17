@@ -4,3 +4,4 @@ package-lock.json
 .vscode/*
 **/build
 webpack@5.74.0
+vue-source-code*
