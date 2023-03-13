@@ -5,6 +5,7 @@
     "declarationDir": "./types",
     "target": "esnext",
     "module": "esnext",
+    "allowSyntheticDefaultImports": true
   },
   "include": ["lib/*"]
 }
