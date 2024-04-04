@@ -21,7 +21,14 @@ export const App = {
       },
       [
         h('div', {}, 'hi ' + this.msg),
-        h(Foo, { count: 1 }),
+        h(
+          Foo,
+          { count: 1 },
+          {
+            header: ({ age }) => h('p', {}, 'header' + age),
+            footer: () => h('p', {}, 'footer'),
+          },
+        ),
         h(Bar, {
           onAdd(a, b) {
             console.log('onAdd', a, b);

@@ -5,16 +5,133 @@ var ShapeFlags = /* @__PURE__ */ ((ShapeFlags2) => {
   ShapeFlags2[ShapeFlags2["STATEFUL_COMPONENT"] = 2] = "STATEFUL_COMPONENT";
   ShapeFlags2[ShapeFlags2["TEXT_CHILDREN"] = 4] = "TEXT_CHILDREN";
   ShapeFlags2[ShapeFlags2["ARRAY_CHILDREN"] = 8] = "ARRAY_CHILDREN";
+  ShapeFlags2[ShapeFlags2["SLOT_CHILDREN"] = 16] = "SLOT_CHILDREN";
   return ShapeFlags2;
 })(ShapeFlags || {});
 
+const Fragment = Symbol("Fragment");
+const Text = Symbol("Text");
+function createVNode(type, props, children) {
+  const vnode = {
+    type,
+    props,
+    children,
+    key: props && props.key,
+    el: null,
+    // this.$el
+    shapeFlag: getShapeFlag(type)
+  };
+  if (typeof vnode.children === "string") {
+    vnode.shapeFlag |= ShapeFlags.TEXT_CHILDREN;
+  } else if (Array.isArray(vnode.children)) {
+    vnode.shapeFlag |= ShapeFlags.ARRAY_CHILDREN;
+  }
+  if (vnode.shapeFlag & ShapeFlags.STATEFUL_COMPONENT) {
+    if (typeof vnode.children === "object") {
+      vnode.shapeFlag = vnode.shapeFlag | ShapeFlags.SLOT_CHILDREN;
+    }
+  }
+  return vnode;
+}
+function createTextVNode(text) {
+  return createVNode(Text, {}, text);
+}
+function getShapeFlag(type) {
+  return typeof type === "string" ? ShapeFlags.ELEMENT : ShapeFlags.STATEFUL_COMPONENT;
+}
+
+function h(type, props, children) {
+  return createVNode(type, props, children);
+}
+
+function renderSlots(slots, name, props) {
+  const slot = slots[name];
+  if (slot) {
+    if (typeof slot === "function") {
+      return createVNode(Fragment, {}, slot(props));
+    }
+  }
+}
+
 const extend = Object.assign;
+const EMPTY_OBJ = {};
 const isObject = (val) => {
   return val !== null && typeof val === "object";
 };
+const hasChanged = (val, newVal) => {
+  return !Object.is(val, newVal);
+};
 const hasOwn = (val, key) => Object.prototype.hasOwnProperty.call(val, key);
+const camelize = (str) => {
+  return str.replace(/-(\w)/g, (_, c) => {
+    return c ? c.toUpperCase() : "";
+  });
+};
+const capitalize = (str) => {
+  return str.charAt(0).toUpperCase() + str.slice(1);
+};
+const toHandlerKey = (str) => {
+  return str ? "on" + capitalize(str) : "";
+};
 
+let activeEffect;
+let shouldTrack;
 const targetMap = /* @__PURE__ */ new Map();
+class ReactiveEffect {
+  constructor(fn, scheduler) {
+    this.scheduler = scheduler;
+    this.deps = [];
+    this.active = true;
+    this.fn = fn;
+  }
+  run() {
+    if (!this.active) {
+      return this.fn();
+    }
+    shouldTrack = true;
+    activeEffect = this;
+    const result = this.fn();
+    shouldTrack = false;
+    return result;
+  }
+  stop() {
+    if (this.active) {
+      cleanEffect(this);
+      this.onStop?.();
+      this.active = false;
+    }
+  }
+}
+function cleanEffect(effect2) {
+  effect2.deps.forEach((dep) => {
+    dep.delete(effect2);
+  });
+  effect2.deps.length = 0;
+}
+function track(target, key) {
+  if (!isTracking())
+    return;
+  let depsMap = targetMap.get(target);
+  if (!depsMap) {
+    depsMap = /* @__PURE__ */ new Map();
+    targetMap.set(target, depsMap);
+  }
+  let deps = depsMap.get(key);
+  if (!deps) {
+    deps = /* @__PURE__ */ new Set();
+    depsMap.set(key, deps);
+  }
+  trackEffects(deps);
+}
+function trackEffects(deps) {
+  if (deps.has(activeEffect))
+    return;
+  deps.add(activeEffect);
+  activeEffect.deps.push(deps);
+}
+function isTracking() {
+  return shouldTrack && activeEffect !== void 0;
+}
 function trigger(target, key) {
   const depsMap = targetMap.get(target);
   const deps = depsMap.get(key);
@@ -29,6 +146,14 @@ function triggerEffects(deps) {
     }
   });
 }
+function effect(fn, options = {}) {
+  const _effect = new ReactiveEffect(fn, options.scheduler);
+  extend(_effect, options);
+  _effect.run();
+  const runner = _effect.run.bind(_effect);
+  runner.effect = _effect;
+  return runner;
+}
 
 const get = createGetter();
 const set = createSetter();
@@ -42,6 +167,9 @@ function createGetter(isReadonly = false, shallow = false) {
       return !isReadonly;
     } else if (key === ReactiveFlags.IS_READONLY) {
       return isReadonly;
+    }
+    if (!isReadonly) {
+      track(target, key);
     }
     if (!shallow && isObject(res)) {
       return isReadonly ? readonly(res) : reactive(res);
@@ -95,20 +223,64 @@ function createActiveObject(raw, baseHandler) {
   return new Proxy(raw, baseHandler);
 }
 
+class RefImpl {
+  constructor(value) {
+    this.__v_isRef = true;
+    this._rawValue = value;
+    this._value = convert(value);
+    this.deps = /* @__PURE__ */ new Set();
+  }
+  get value() {
+    trackRefValue(this);
+    return this._value;
+  }
+  set value(newValue) {
+    if (hasChanged(newValue, this._rawValue)) {
+      this._rawValue = newValue;
+      this._value = convert(newValue);
+      triggerRefValue(this);
+    }
+  }
+}
+function convert(value) {
+  return isObject(value) ? reactive(value) : value;
+}
+function trackRefValue(ref2) {
+  if (isTracking()) {
+    trackEffects(ref2.deps);
+  }
+}
+function triggerRefValue(ref2) {
+  const deps = ref2.deps;
+  deps && triggerEffects(deps);
+}
+function ref(value) {
+  return new RefImpl(value);
+}
+function isRef(ref2) {
+  return !!ref2.__v_isRef;
+}
+function unRef(ref2) {
+  return isRef(ref2) ? ref2.value : ref2;
+}
+function proxyRefs(objectWithRefs) {
+  return new Proxy(objectWithRefs, {
+    get(target, key) {
+      return unRef(Reflect.get(target, key));
+    },
+    set(target, key, value) {
+      if (isRef(target[key]) && !isRef(value)) {
+        return target[key].value = value;
+      } else {
+        return Reflect.set(target, key, value);
+      }
+    }
+  });
+}
+
 function emit(instance, event, ...args) {
   console.log("emit:", event);
   const { props } = instance;
-  const camelize = (str) => {
-    return str.replace(/-(\w)/g, (_, c) => {
-      return c ? c.toUpperCase() : "";
-    });
-  };
-  const capitalize = (str) => {
-    return str.charAt(0).toUpperCase() + str.slice(1);
-  };
-  const toHandlerKey = (str) => {
-    return str ? "on" + capitalize(str) : "";
-  };
   const handlerName = toHandlerKey(camelize(event));
   const handler = props[handlerName];
   handler && handler(...args);
@@ -119,7 +291,9 @@ function initProps(instance, rawProps) {
 }
 
 const publicPropertiesMap = {
-  $el: (i) => i.vnode.el
+  $el: (i) => i.vnode.el,
+  $props: (i) => i.props,
+  $slots: (i) => i.slots
 };
 function publicInstanceProxyHandlers() {
   return {
@@ -138,11 +312,34 @@ function publicInstanceProxyHandlers() {
   };
 }
 
-function createComponentInstance(vnode) {
+function initSlots(instance, children) {
+  if (instance.vnode.shapeFlag & ShapeFlags.SLOT_CHILDREN) {
+    normalizeObjectSlots(children, instance.slots);
+  }
+}
+function normalizeObjectSlots(children, slots) {
+  for (const key in children) {
+    const value = children[key];
+    slots[key] = (props) => normalizeSlotValue(value(props));
+  }
+}
+function normalizeSlotValue(value) {
+  return Array.isArray(value) ? value : [value];
+}
+
+function createComponentInstance(vnode, parent) {
   const component = {
     type: vnode.type,
     vnode,
     setupState: {},
+    props: {},
+    slots: {},
+    provides: parent ? parent.provides : {},
+    // 根组件赋值{}, 孩子组件初始化都用祖先provides
+    parent,
+    // 提供给inject
+    subTree: {},
+    isMounted: false,
     emit: () => {
     }
   };
@@ -151,6 +348,7 @@ function createComponentInstance(vnode) {
 }
 function setupComponent(instance) {
   initProps(instance, instance.vnode.props);
+  initSlots(instance, instance.vnode.children);
   setupStatefulComponent(instance);
 }
 function setupStatefulComponent(instance) {
@@ -158,15 +356,17 @@ function setupStatefulComponent(instance) {
   instance.proxy = new Proxy({ _: instance }, publicInstanceProxyHandlers());
   const { setup } = Component;
   if (setup) {
+    setCurretnInstance(instance);
     const setupResult = setup(shallowReadonly(instance.props), {
       emit: instance.emit
     });
+    setCurretnInstance(null);
     handleSetupResult(instance, setupResult);
   }
 }
 function handleSetupResult(instance, setupResult) {
   if (typeof setupResult === "object") {
-    instance.setupState = setupResult;
+    instance.setupState = proxyRefs(setupResult);
   }
   finishComponentSetup(instance);
 }
@@ -176,92 +376,329 @@ function finishComponentSetup(instance) {
     instance.render = Component.render;
   }
 }
+let currentInstance = null;
+function getCurrentInstance() {
+  return currentInstance;
+}
+function setCurretnInstance(instance) {
+  currentInstance = instance;
+}
 
-function render(vnode, container) {
-  patch(vnode, container);
-}
-function patch(vnode, container) {
-  if (ShapeFlags.ELEMENT & vnode.shapeFlag) {
-    processElement(vnode, container);
-  } else if (ShapeFlags.STATEFUL_COMPONENT & vnode.shapeFlag) {
-    processComponent(vnode, container);
+function provide(key, value) {
+  const currentInstance = getCurrentInstance();
+  if (currentInstance) {
+    let { provides } = currentInstance;
+    const parentProvides = currentInstance.parent.provides;
+    if (parentProvides === provides) {
+      provides = currentInstance.provides = Object.create(parentProvides);
+    }
+    provides[key] = value;
   }
 }
-function processElement(vnode, container) {
-  mountElement(vnode, container);
-}
-function mountElement(initialVnode, container) {
-  const el = initialVnode.el = document.createElement(initialVnode.type);
-  const { children, props } = initialVnode;
-  if (ShapeFlags.TEXT_CHILDREN & initialVnode.shapeFlag) {
-    el.textContent = children;
-  } else if (ShapeFlags.ARRAY_CHILDREN & initialVnode.shapeFlag) {
-    mountChild(initialVnode, el);
+function inject(key, defaultValue) {
+  const currentInstance = getCurrentInstance();
+  if (currentInstance) {
+    const parentProvides = currentInstance.parent.provides;
+    if (key in parentProvides) {
+      return parentProvides[key];
+    } else if (defaultValue) {
+      if (typeof defaultValue === "function") {
+        return defaultValue();
+      }
+      return defaultValue;
+    }
   }
-  const isOn = (key) => /^on[A-Z]/.test(key);
-  for (const key in props) {
-    const val = props[key];
-    if (isOn(key)) {
-      const event = key.slice(2).toLowerCase();
-      el.addEventListener(event, val);
+}
+
+function createAppAPI(render) {
+  return function createApp(rootComponent) {
+    return {
+      mount(rootContainer) {
+        const vnode = createVNode(rootComponent);
+        render(vnode, rootContainer);
+      }
+    };
+  };
+}
+
+function createRenderer(options) {
+  const {
+    createElement: hostCreateElement,
+    patchProp: hostPatchProp,
+    insert: hostInsert,
+    remove: hostRemove,
+    setElementText: hostSetElementText
+  } = options;
+  function render(vnode, container) {
+    patch(null, vnode, container, null, null);
+  }
+  function patch(n1, n2, container, parentComponent, anchor) {
+    const { type } = n2;
+    switch (type) {
+      case Fragment:
+        processFragment(n1, n2, container, parentComponent, anchor);
+        break;
+      case Text:
+        processText(n1, n2, container);
+        break;
+      default:
+        if (ShapeFlags.ELEMENT & n2.shapeFlag) {
+          processElement(n1, n2, container, parentComponent, anchor);
+        } else if (ShapeFlags.STATEFUL_COMPONENT & n2.shapeFlag) {
+          processComponent(n1, n2, container, parentComponent, anchor);
+        }
+    }
+  }
+  function processFragment(n1, n2, container, parentComponent, anchor) {
+    mountChild(n2.children, container, parentComponent, anchor);
+  }
+  function processText(n1, n2, container) {
+    const { children } = n2;
+    const text = n2.el = document.createTextNode(children);
+    container.append(text);
+  }
+  function processElement(n1, n2, container, parentComponent, anchor) {
+    if (!n1) {
+      mountElement(n2, container, parentComponent, anchor);
     } else {
-      el.setAttribute(key, val);
+      patchElement(n1, n2, container, parentComponent, anchor);
     }
   }
-  container.append(el);
-}
-function mountChild(initialVnode, container) {
-  initialVnode.children.forEach((v) => {
-    patch(v, container);
-  });
-}
-function processComponent(vnode, container) {
-  mountComponent(vnode, container);
-}
-function mountComponent(initialVnode, container) {
-  const instance = createComponentInstance(initialVnode);
-  setupComponent(instance);
-  setupRenderEffect(instance, initialVnode, container);
-}
-function setupRenderEffect(instance, vnode, container) {
-  const { proxy } = instance;
-  const subTree = instance.render.call(proxy);
-  patch(subTree, container);
-  vnode.el = subTree.el;
-}
-
-function createVNode(type, props, children) {
-  const vnode = {
-    type,
-    props,
-    children,
-    el: null,
-    // this.$el
-    shapeFlag: getShapeFlag(type)
-  };
-  if (typeof vnode.children === "string") {
-    vnode.shapeFlag |= ShapeFlags.TEXT_CHILDREN;
-  } else if (Array.isArray(vnode.children)) {
-    vnode.shapeFlag |= ShapeFlags.ARRAY_CHILDREN;
+  function mountElement(vnode, container, parentComponent, anchor) {
+    const el = vnode.el = hostCreateElement(vnode.type);
+    const { children, props } = vnode;
+    if (ShapeFlags.TEXT_CHILDREN & vnode.shapeFlag) {
+      el.textContent = children;
+    } else if (ShapeFlags.ARRAY_CHILDREN & vnode.shapeFlag) {
+      mountChild(vnode.children, el, parentComponent, anchor);
+    }
+    for (const key in props) {
+      const val = props[key];
+      hostPatchProp(el, key, null, val);
+    }
+    hostInsert(el, container, anchor);
   }
-  return vnode;
-}
-function getShapeFlag(type) {
-  return typeof type === "string" ? ShapeFlags.ELEMENT : ShapeFlags.STATEFUL_COMPONENT;
-}
-
-function createApp(rootComponent) {
+  function patchElement(n1, n2, container, parentComponent, anchor) {
+    console.log("patchElement");
+    console.log("n1:", n1);
+    console.log("n2:", n2);
+    const oldProps = n1.props || EMPTY_OBJ;
+    const newProps = n2.props || EMPTY_OBJ;
+    const el = n2.el = n1.el;
+    patchChildren(n1, n2, el, parentComponent, anchor);
+    patchProps(el, oldProps, newProps);
+  }
+  function patchChildren(n1, n2, container, parentComponent, anchor) {
+    const prevShapeFlag = n1.shapeFlag;
+    const c1 = n1.children;
+    const { shapeFlag } = n2;
+    const c2 = n2.children;
+    if (shapeFlag & ShapeFlags.TEXT_CHILDREN) {
+      if (prevShapeFlag & ShapeFlags.ARRAY_CHILDREN) {
+        unmountChildren(c1);
+      }
+      if (c1 !== c2) {
+        hostSetElementText(container, c2);
+      }
+    } else {
+      if (prevShapeFlag & ShapeFlags.TEXT_CHILDREN) {
+        hostSetElementText(container, "");
+        mountChild(c2, container, parentComponent, anchor);
+      } else {
+        patchKeyedChildren(c1, c2, container, parentComponent, anchor);
+      }
+    }
+  }
+  function patchKeyedChildren(c1, c2, container, parentComponent, parentAnchor) {
+    const l2 = c2.length;
+    let e1 = c1.length - 1;
+    let e2 = c2.length - 1;
+    function isSameVNodeType(n1, n2) {
+      return n1.type === n2.type && n1.key === n2.key;
+    }
+    let i = 0;
+    while (i <= e1 && i <= e2) {
+      const n1 = c1[i];
+      const n2 = c2[i];
+      if (isSameVNodeType(n1, n2)) {
+        patch(n1, n2, container, parentComponent, parentAnchor);
+      } else {
+        break;
+      }
+      i++;
+    }
+    while (i <= e1 && i <= e2) {
+      const n1 = c1[e1];
+      const n2 = c2[e2];
+      if (isSameVNodeType(n1, n2)) {
+        patch(n1, n2, container, parentComponent, parentAnchor);
+      } else {
+        break;
+      }
+      e1--;
+      e2--;
+    }
+    if (i > e1) {
+      if (i <= e2) {
+        const nextPos = e2 + 1;
+        const anchor = nextPos < l2 ? c2[nextPos].el : null;
+        while (i <= e2) {
+          patch(null, c2[i], container, parentComponent, anchor);
+          i++;
+        }
+      }
+    } else if (i > e2) {
+      while (i <= e1) {
+        debugger;
+        hostRemove(c1[i].el);
+        i++;
+      }
+    } else {
+      let s1 = i;
+      let s2 = i;
+      const toBePatched = e2 - s2 + 1;
+      let patched = 0;
+      const newIndexToOldIndexMap = new Array(toBePatched).fill(0);
+      const keyToNewIndexMap = /* @__PURE__ */ new Map();
+      for (let i2 = s2; i2 <= e2; i2++) {
+        const nextChild = c2[i2];
+        keyToNewIndexMap.set(nextChild.key, i2);
+      }
+      debugger;
+      for (let i2 = s1; i2 <= e1; i2++) {
+        const prevChild = c1[i2];
+        if (patched >= toBePatched) {
+          hostRemove(prevChild.el);
+          continue;
+        }
+        let newIndex;
+        if (prevChild.key != null) {
+          newIndex = keyToNewIndexMap.get(prevChild.key);
+        } else {
+          for (let j = s2; j <= e2; j++) {
+            if (isSameVNodeType(prevChild, c2[j])) {
+              newIndex = j;
+              break;
+            }
+          }
+        }
+        if (newIndex === void 0) {
+          hostRemove(prevChild.el);
+        } else {
+          newIndexToOldIndexMap[newIndex - s2] = i2 + 1;
+          patch(prevChild, c2[newIndex], container, parentComponent, null);
+          patched++;
+        }
+      }
+    }
+  }
+  function unmountChildren(children) {
+    for (const child of children) {
+      const el = child.el;
+      hostRemove(el);
+    }
+  }
+  function patchProps(el, oldProps, newProps) {
+    if (oldProps !== newProps) {
+      for (const key in newProps) {
+        const prevProp = oldProps[key];
+        const newProp = newProps[key];
+        if (prevProp !== newProp) {
+          hostPatchProp(el, key, prevProp, newProp);
+        }
+      }
+      if (oldProps !== EMPTY_OBJ) {
+        for (const key in oldProps) {
+          if (!(key in newProps)) {
+            hostPatchProp(el, key, oldProps[key], null);
+          }
+        }
+      }
+    }
+  }
+  function mountChild(children, container, parentComponent, anchor) {
+    children.forEach((v) => {
+      patch(null, v, container, parentComponent, anchor);
+    });
+  }
+  function processComponent(n1, n2, container, parentComponent, anchor) {
+    mountComponent(n2, container, parentComponent, anchor);
+  }
+  function mountComponent(initialVNode, container, parentComponent, anchor) {
+    const instance = createComponentInstance(initialVNode, parentComponent);
+    setupComponent(instance);
+    setupRenderEffect(instance, initialVNode, container, anchor);
+  }
+  function setupRenderEffect(instance, vnode, container, anchor) {
+    effect(() => {
+      if (!instance.isMounted) {
+        console.log("initialize");
+        const { proxy } = instance;
+        const subTree = instance.subTree = instance.render.call(proxy);
+        patch(null, subTree, container, instance, anchor);
+        vnode.el = subTree.el;
+        instance.isMounted = true;
+      } else {
+        console.log("update");
+        const { proxy } = instance;
+        const subTree = instance.render.call(proxy);
+        const prevSubTree = instance.subTree;
+        instance.subTree = subTree;
+        patch(prevSubTree, subTree, container, instance, anchor);
+      }
+    });
+  }
   return {
-    mount(rootContainer) {
-      const vnode = createVNode(rootComponent);
-      render(vnode, rootContainer);
-    }
+    createApp: createAppAPI(render)
   };
 }
 
-function h(type, props, children) {
-  return createVNode(type, props, children);
+function createElement(type) {
+  return document.createElement(type);
+}
+function patchProp(el, key, prevVal, nextVal) {
+  const isOn = (key2) => /^on[A-Z]/.test(key2);
+  if (isOn(key)) {
+    const event = key.slice(2).toLowerCase();
+    el.addEventListener(event, nextVal);
+  } else {
+    if (nextVal === null || nextVal === void 0) {
+      el.removeAttribute(key);
+    } else {
+      el.setAttribute(key, nextVal);
+    }
+  }
+}
+function insert(child, parent, anchor) {
+  parent.insertBefore(child, anchor || null);
+}
+function remove(child) {
+  const parent = child.parentNode;
+  parent.removeChild(child);
+}
+function setElementText(el, text) {
+  el.textContent = text;
+}
+const renderer = createRenderer({
+  createElement,
+  patchProp,
+  insert,
+  remove,
+  setElementText
+});
+function createApp(...args) {
+  return renderer.createApp(...args);
 }
 
 exports.createApp = createApp;
+exports.createRenderer = createRenderer;
+exports.createTextVNode = createTextVNode;
+exports.createVNode = createVNode;
+exports.getCurrentInstance = getCurrentInstance;
 exports.h = h;
+exports.inject = inject;
+exports.provide = provide;
+exports.proxyRefs = proxyRefs;
+exports.ref = ref;
+exports.renderSlots = renderSlots;
+exports.renderer = renderer;
