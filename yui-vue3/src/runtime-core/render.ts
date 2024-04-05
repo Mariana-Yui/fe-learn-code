@@ -5,6 +5,11 @@ import { createComponentInstance, setupComponent } from './component';
 import { createAppAPI } from './createApp';
 import { Fragment, Text } from './vnode';
 
+/**
+ * parentComponent: 创建实例时使用, 用于provide/inject特性
+ * anchor: insert时使用, 作为insertBefore的锚点
+ */
+
 export function createRenderer(options) {
   const {
     createElement: hostCreateElement,
@@ -128,8 +133,10 @@ export function createRenderer(options) {
     }
   }
 
+  // Vue.js设计与实现中的例子参见 example/diff/fast-diff.ts
   function patchKeyedChildren(c1, c2, container, parentComponent, parentAnchor) {
     const l2 = c2.length;
+    // 尾指针
     let e1 = c1.length - 1;
     let e2 = c2.length - 1;
 
@@ -137,8 +144,9 @@ export function createRenderer(options) {
       return n1.type === n2.type && n1.key === n2.key;
     }
 
+    // 头指针 统一指向索引0
     let i = 0;
-    // 1. 左侧相同 移动 i
+    // 1. 头部相同的节点 移动头指针 只进行patch
     while (i <= e1 && i <= e2) {
       const n1 = c1[i];
       const n2 = c2[i];
@@ -151,7 +159,7 @@ export function createRenderer(options) {
       i++;
     }
 
-    // 2. 右侧相同 移动 e 长度
+    // 2. 尾部相同的节点 移动尾指针 只进行patch
     while (i <= e1 && i <= e2) {
       const n1 = c1[e1];
       const n2 = c2[e2];
@@ -166,12 +174,12 @@ export function createRenderer(options) {
     }
 
     /**
-     * 3. 新的 比 老的 长 (新增)
-     * 会存在insert节点前的操作, 所以需要知道插入位置
-     * 引入 anchor
+     * 前两步预处理完, 如果如果有一方的尾节点已经越过头节点
+     * 说明只剩下新增新节点 or 移除老节点 操作
      *  */
     if (i > e1) {
       if (i <= e2) {
+        /** 新增 */
         // 这里是e2+1, 不是i+1, 当存在多个节点需要insert时, i+1获取到的是null, 会变成append操作
         const nextPos = e2 + 1;
         const anchor = nextPos < l2 ? c2[nextPos].el : null;
@@ -181,11 +189,8 @@ export function createRenderer(options) {
         }
       }
     } else if (i > e2) {
-      /**
-       * 4. 老的 比 新的 长 (删除)
-       */
+      /** 删除 */
       while (i <= e1) {
-        debugger;
         hostRemove(c1[i].el);
         i++;
       }
@@ -202,23 +207,31 @@ export function createRenderer(options) {
 
       const keyToNewIndexMap = new Map();
 
+      // 是否需要移动
+      let moved = false;
+      // 等同于Simple-Diff的lastIndex
+      let maxNewIndexSoFar = 0;
+
       // 遍历新的, 将key加到map
       for (let i = s2; i <= e2; i++) {
         const nextChild = c2[i];
         keyToNewIndexMap.set(nextChild.key, i);
       }
-      debugger;
 
       // 遍历老的, 找到新的中存在节点
       for (let i = s1; i <= e1; i++) {
         const prevChild = c1[i];
+        // 新节点列表都处理完 旧节点还有剩下 直接移除 (1)
         if (patched >= toBePatched) {
-          // 如果相同的都对比过, 老的还有剩下, 直接删除
           hostRemove(prevChild.el);
           continue;
         }
 
         let newIndex;
+        /**
+         * 兼容node.key可能不存在的场景
+         * 存在key就从表里找, 不存在key遍历新列表去找
+         */
         if (prevChild.key != null) {
           newIndex = keyToNewIndexMap.get(prevChild.key);
         } else {
@@ -230,16 +243,94 @@ export function createRenderer(options) {
           }
         }
 
-        // 没找到删除老节点, 找到继续patch节点内容
+        // 当前旧节点在新列表中找不到 直接移除 (2)
         if (newIndex === undefined) {
           hostRemove(prevChild.el);
         } else {
-          newIndexToOldIndexMap[newIndex - s2] = i + 1; // 初始化为0, 这里+1做区分
+          // 相对顺序没有发生改变 更新lastIndex
+          if (newIndex >= maxNewIndexSoFar) {
+            maxNewIndexSoFar = newIndex;
+          } else {
+            moved = true;
+          }
+          /**
+           * 初始化为0, 这里+1做区分, 后续如果发现是0则表示是新增节点
+           * 这里用i+1只用作区分, 用i+2 i+3都可以
+           * 因为这里的值只是用作求最长递增子序列, 最后要用的到的是newIndexToOldIndexMap的索引
+           * 即新列表的最长递增子序列
+           */
+          newIndexToOldIndexMap[newIndex - s2] = i + 1;
           patch(prevChild, c2[newIndex], container, parentComponent, null);
           patched++; // 新老相同节点对比过才++
         }
       }
+
+      const increasingNewIndexSequence = moved ? getSequence(newIndexToOldIndexMap) : [];
+      // 尾指针 指向lis
+      let j = increasingNewIndexSequence.length - 1;
+
+      // 尾指针 指向新列表(掐头去尾)
+      for (let i = toBePatched - 1; i >= 0; i--) {
+        const nextIndex = s2 + i;
+        const nextChildren = c2[nextIndex];
+        const anchor = nextIndex + 1 < l2 ? c2[nextIndex + 1].el : null;
+
+        if (newIndexToOldIndexMap[i] === 0) {
+          patch(null, nextChildren, container, parentComponent, anchor);
+        }
+
+        if (moved) {
+          if (j < 0 || i !== increasingNewIndexSequence[j]) {
+            console.log('移动位置');
+            hostInsert(nextChildren.el, container, anchor);
+          } else {
+            j--;
+          }
+        }
+      }
     }
+  }
+
+  // 最长递增子序列 用于做新老节点列表的递增子序列映射
+  function getSequence(arr: number[]): number[] {
+    const p = arr.slice();
+    const result = [0];
+    let i, j, u, v, c;
+    const len = arr.length;
+    for (i = 0; i < len; i++) {
+      const arrI = arr[i];
+      if (arrI !== 0) {
+        j = result[result.length - 1];
+        if (arr[j] < arrI) {
+          p[i] = j;
+          result.push(i);
+          continue;
+        }
+        u = 0;
+        v = result.length - 1;
+        while (u < v) {
+          c = (u + v) >> 1;
+          if (arr[result[c]] < arrI) {
+            u = c + 1;
+          } else {
+            v = c;
+          }
+        }
+        if (arrI < arr[result[u]]) {
+          if (u > 0) {
+            p[i] = result[u - 1];
+          }
+          result[u] = i;
+        }
+      }
+    }
+    u = result.length;
+    v = result[u - 1];
+    while (u-- > 0) {
+      result[u] = v;
+      v = p[v];
+    }
+    return result;
   }
 
   function unmountChildren(children) {
