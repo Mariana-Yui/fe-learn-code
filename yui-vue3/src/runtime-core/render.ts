@@ -2,7 +2,9 @@ import { effect } from '../reactivity/effect';
 import { EMPTY_OBJ } from '../shared';
 import { ShapeFlags } from '../shared/shapeFlags';
 import { createComponentInstance, setupComponent } from './component';
+import { shouldUpdateComponent } from './componentUpdateUtils';
 import { createAppAPI } from './createApp';
+import { queueJobs } from './scheduler';
 import { Fragment, Text } from './vnode';
 
 /**
@@ -374,45 +376,104 @@ export function createRenderer(options) {
   }
 
   function processComponent(n1, n2, container, parentComponent, anchor) {
-    mountComponent(n2, container, parentComponent, anchor);
+    if (!n1) {
+      mountComponent(n2, container, parentComponent, anchor);
+    } else {
+      updateComponent(n1, n2);
+    }
   }
 
   function mountComponent(initialVNode, container, parentComponent, anchor) {
-    const instance = createComponentInstance(initialVNode, parentComponent);
+    const instance = (initialVNode.component = createComponentInstance(initialVNode, parentComponent));
 
     setupComponent(instance);
     setupRenderEffect(instance, initialVNode, container, anchor);
   }
 
+  /**
+   * 需要注意的是 和updateElement不同是
+   * updateComponent是更新组件, 而对于Vue组件而言, 会发生变化的只有可能是props和slots
+   * 这里简化只处理props
+   * 并且对于已经挂载的n1, n1.el(DOM元素) 和 n1.component(instance实例) 都是存在的
+   * 但是n2此时因为没有挂载, 所以这两个属性都是null, 需要通过n1赋值
+   */
+  function updateComponent(n1, n2) {
+    const instance = (n2.component = n1.component);
+    // 当render()中存在多个组件时任意变更都会触发这段逻辑, 所以需要判断是否是当前组件的props发生变更
+    debugger;
+    if (shouldUpdateComponent(n1, n2)) {
+      // next作为临时属性记录更新后的vnode
+      instance.next = n2;
+      // 手动执行runner
+      instance.update();
+    } else {
+      n2.el = n1.el;
+      instance.vnode = n2;
+    }
+  }
+
   function setupRenderEffect(instance, vnode, container, anchor) {
     /**
      * effect依赖收集, update前置工作
+     * 将runner返回给instance.update 手动调用
      */
-    effect(() => {
-      if (!instance.isMounted) {
-        console.log('initialize');
-        const { proxy } = instance;
-        // instance.subTree记录更新前的subTree, update时和新生成的subTree diff
-        const subTree = (instance.subTree = instance.render.call(proxy));
+    instance.update = effect(
+      () => {
+        if (!instance.isMounted) {
+          console.log('initialize');
+          const { proxy } = instance;
+          // instance.subTree记录更新前的subTree, update时和新生成的subTree diff
+          const subTree = (instance.subTree = instance.render.call(proxy));
 
-        // vnode -> patch
-        // now vnode is element -> mountElement
-        patch(null, subTree, container, instance, anchor); // instance 父实例
+          // vnode -> patch
+          // now vnode is element -> mountElement
+          patch(null, subTree, container, instance, anchor); // instance 父实例
 
-        // patch递归此时自底向上, el -> $el 有值
-        vnode.el = subTree.el;
+          // patch递归此时自底向上, el -> $el 有值
+          vnode.el = subTree.el;
 
-        instance.isMounted = true;
-      } else {
-        console.log('update');
-        const { proxy } = instance;
-        const subTree = instance.render.call(proxy);
-        const prevSubTree = instance.subTree;
-        // 同理
-        instance.subTree = subTree;
-        patch(prevSubTree, subTree, container, instance, anchor);
-      }
-    });
+          instance.isMounted = true;
+        } else {
+          console.log('update');
+          /** 更新 Component类型的props [S] */
+          // 更新 props
+          // 首次更新 即由响应式数据变化引起的trigger执行fn是不会走这段逻辑的
+          // next: n2  vnode: n1
+          const { next, vnode } = instance;
+          if (next) {
+            next.el = vnode.el;
+
+            // 更新instance.vnode为n2
+            updateComponentPreRender(instance, next);
+          }
+          /** 更新 Component类型的props [E] */
+          const { proxy } = instance;
+          const subTree = instance.render.call(proxy);
+          const prevSubTree = instance.subTree;
+          // 同理
+          instance.subTree = subTree;
+          patch(prevSubTree, subTree, container, instance, anchor);
+        }
+      },
+      {
+        /**
+         * 如果同步逻辑中有N个响应式数据发生变化, 没有scheduler就会触发N次instance.update
+         * 可以通过scheduler中定义的队列将同步任务加入队列, 然后利用微任务异步处理
+         * nextTick也是利用微任务异步执行
+         */
+        scheduler() {
+          console.log('update - scheduler');
+          queueJobs(instance.update);
+        },
+      },
+    );
+  }
+
+  function updateComponentPreRender(instance, nextVNode) {
+    instance.vnode = nextVNode;
+    // 用完next 回收
+    instance.next = null;
+    instance.props = nextVNode.props;
   }
 
   return {

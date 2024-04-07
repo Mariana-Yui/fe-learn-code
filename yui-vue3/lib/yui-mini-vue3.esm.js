@@ -14,6 +14,8 @@ function createVNode(type, props, children) {
     type,
     props,
     children,
+    component: null,
+    // vnode 关联 instance
     key: props && props.key,
     el: null,
     // this.$el
@@ -408,6 +410,17 @@ function inject(key, defaultValue) {
   }
 }
 
+function shouldUpdateComponent(prevVNode, nextVNode) {
+  const { props: prevProps } = prevVNode;
+  const { props: nextProps } = nextVNode;
+  for (const key in nextProps) {
+    if (prevProps[key] !== nextProps[key]) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function createAppAPI(render) {
   return function createApp(rootComponent) {
     return {
@@ -417,6 +430,32 @@ function createAppAPI(render) {
       }
     };
   };
+}
+
+const queue = [];
+const p = Promise.resolve();
+let isFlushPending = false;
+function nextTick(fn) {
+  return fn ? p.then(fn) : p;
+}
+function queueJobs(job) {
+  if (!queue.includes(job)) {
+    queue.push(job);
+  }
+  queueFlush();
+}
+function queueFlush() {
+  if (isFlushPending)
+    return;
+  isFlushPending = true;
+  nextTick(flushJobs);
+}
+function flushJobs() {
+  isFlushPending = false;
+  let job;
+  while ((job = queue.shift()) !== void 0) {
+    job();
+  }
 }
 
 function createRenderer(options) {
@@ -683,31 +722,69 @@ function createRenderer(options) {
     });
   }
   function processComponent(n1, n2, container, parentComponent, anchor) {
-    mountComponent(n2, container, parentComponent, anchor);
+    if (!n1) {
+      mountComponent(n2, container, parentComponent, anchor);
+    } else {
+      updateComponent(n1, n2);
+    }
   }
   function mountComponent(initialVNode, container, parentComponent, anchor) {
-    const instance = createComponentInstance(initialVNode, parentComponent);
+    const instance = initialVNode.component = createComponentInstance(initialVNode, parentComponent);
     setupComponent(instance);
     setupRenderEffect(instance, initialVNode, container, anchor);
   }
+  function updateComponent(n1, n2) {
+    const instance = n2.component = n1.component;
+    debugger;
+    if (shouldUpdateComponent(n1, n2)) {
+      instance.next = n2;
+      instance.update();
+    } else {
+      n2.el = n1.el;
+      instance.vnode = n2;
+    }
+  }
   function setupRenderEffect(instance, vnode, container, anchor) {
-    effect(() => {
-      if (!instance.isMounted) {
-        console.log("initialize");
-        const { proxy } = instance;
-        const subTree = instance.subTree = instance.render.call(proxy);
-        patch(null, subTree, container, instance, anchor);
-        vnode.el = subTree.el;
-        instance.isMounted = true;
-      } else {
-        console.log("update");
-        const { proxy } = instance;
-        const subTree = instance.render.call(proxy);
-        const prevSubTree = instance.subTree;
-        instance.subTree = subTree;
-        patch(prevSubTree, subTree, container, instance, anchor);
+    instance.update = effect(
+      () => {
+        if (!instance.isMounted) {
+          console.log("initialize");
+          const { proxy } = instance;
+          const subTree = instance.subTree = instance.render.call(proxy);
+          patch(null, subTree, container, instance, anchor);
+          vnode.el = subTree.el;
+          instance.isMounted = true;
+        } else {
+          console.log("update");
+          const { next, vnode: vnode2 } = instance;
+          if (next) {
+            next.el = vnode2.el;
+            updateComponentPreRender(instance, next);
+          }
+          const { proxy } = instance;
+          const subTree = instance.render.call(proxy);
+          const prevSubTree = instance.subTree;
+          instance.subTree = subTree;
+          patch(prevSubTree, subTree, container, instance, anchor);
+        }
+      },
+      {
+        /**
+         * 如果同步逻辑中有N个响应式数据发生变化, 没有scheduler就会触发N次instance.update
+         * 可以通过scheduler中定义的队列将同步任务加入队列, 然后利用微任务异步处理
+         * nextTick也是利用微任务异步执行
+         */
+        scheduler() {
+          console.log("update - scheduler");
+          queueJobs(instance.update);
+        }
       }
-    });
+    );
+  }
+  function updateComponentPreRender(instance, nextVNode) {
+    instance.vnode = nextVNode;
+    instance.next = null;
+    instance.props = nextVNode.props;
   }
   return {
     createApp: createAppAPI(render)
@@ -751,4 +828,4 @@ function createApp(...args) {
   return renderer.createApp(...args);
 }
 
-export { createApp, createRenderer, createTextVNode, createVNode, getCurrentInstance, h, inject, provide, proxyRefs, ref, renderSlots, renderer };
+export { createApp, createRenderer, createTextVNode, createVNode, getCurrentInstance, h, inject, nextTick, provide, proxyRefs, ref, renderSlots, renderer };
