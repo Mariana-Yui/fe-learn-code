@@ -132,11 +132,13 @@ function parseElement(context: Context, ancestor: any[]) {
   ancestor.pop();
 
   // 匹配到结束标签继续推进 否则抛出异常 非法的html结构
-  if (startsWithEndTagOpen(context.source, element)) {
+  if (startsWithEndTagOpen(context.source, element.tag)) {
     parseTag(context, TagType.End);
   } else {
-    throw new Error(`缺少标签:${element.tag}`);
+    throw new Error(`缺少结束标签:${element.tag}`);
   }
+
+  return element;
 }
 
 function parseTag(context: Context, type: TagType) {
@@ -171,7 +173,6 @@ function parseText(context: Context) {
 
   // 推进
   const content = parseTextData(context, endIndex);
-  console.log('content ==========', content);
 
   return {
     type: Nodetypes.TEXT,
